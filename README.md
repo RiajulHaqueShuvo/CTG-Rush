@@ -17,6 +17,8 @@ Open `index.html` in Chrome (double-click it). That's it.
 | H | Horn |
 | Q | Fire tank cannon / jet missile, or spray water from a fire truck |
 | Space / Shift | Helicopter up / down |
+| 1 / 2 | After getting in: free ride / start that vehicle's mission |
+| X | Cancel the vehicle mission |
 | M | City map (drag to move, scroll to zoom, click to set a waypoint) |
 | P | Pause |
 
@@ -24,6 +26,7 @@ Open `index.html` in Chrome (double-click it). That's it.
 
 - **Vehicles:** CNG auto-rickshaws, cars, buses, trucks, motorbikes, rickshaws, ambulance, speedboats, a plane you can fly, and a train with 3 stations.
 - **Jobs:** drive to a green ৳ marker, pick up a passenger or parcel, deliver before time runs out. CNG (+30%) and rickshaw (+50%) bonuses on passenger jobs.
+- **Vehicle missions:** every time you get in a vehicle, choose **[1] Free Ride** or **[2] Mission**. Each vehicle has its own mission: CNG / rickshaw / bike / car passenger trips, bus route, port cargo, ambulance to CMCH, police chase, fire emergency, river race, passenger flight through sky rings, helicopter rescue, fighter-jet sky battle, and tank target practice. Press X to cancel.
 - **Police:** crimes give wanted stars — escape the police or get busted.
 - **Army Base (Chattogram Cantonment):** helicopter, army tanks with cannons, and fighter jets with missiles, plus an airstrip and helipad.
 - **Fire Service:** buildings catch fire; fire trucks drive out by themselves, put the fire out and return to the station. Drive a fire truck yourself and spray water with Q to earn ৳300.
