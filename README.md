@@ -27,8 +27,8 @@ Open `index.html` in Chrome (double-click it). That's it.
 - **Police:** crimes give wanted stars — escape the police or get busted.
 - **Army Base (Chattogram Cantonment):** helicopter, army tanks with cannons, and fighter jets with missiles, plus an airstrip and helipad.
 - **Fire Service:** buildings catch fire; fire trucks drive out by themselves, put the fire out and return to the station. Drive a fire truck yourself and spray water with Q to earn ৳300.
-- **Real Chattogram layout:** the Karnaphuli river flows from Kalurghat down to Patenga, with Shah Amanat Bridge, Kalurghat Bridge and the Karnaphuli Tunnel. Shah Amanat Airport has a diagonal runway (05/23) at the Patenga tip, with Airport Road along the river.
-- **Places:** Agrabad, Halishahar, GEC Circle, Chawkbazar, Bahaddarhat, New Market, Reazuddin Bazar, CRB, Tiger Pass, Chittagong Medical College, Foy's Lake, Link Road, Port Gate, Patenga Beach, Butterfly Park, 15 No Ghat, Boat Club, BAF Shaheen College, Anwara, and Pahartali / Chittagong / Sholoshahar railway stations.
-- **Maps:** corner minimap with place names, and a movable, zoomable city map with waypoints.
+- **"Chittagong: City of Grandeur" map:** Bay of Bengal on the west and south, Port of Chittagong on the north-west coast, Shah Amanat Airport and Patenga Sea Beach on the west coast, the Karnaphuli river down the middle splitting around Sitakunda Park, with Kalurghat, BSRM and Karnaphuli bridges.
+- **Places:** Port of Chittagong, Zillur Rahman Stadium, Chittagong Medical College, Muradpur, Circuit House, Agrabad, GEC Circle, New Market, Kotwali Thana, Fire Service, Patenga Sea Beach, Sitakunda Park, Sitakunda Eco Park, Tiger Pass, Foy's Lake, Bayezid Bostami Mazar, Chittagong University, Chandgaon, Halishahar, Hathazari, the Army Base, and Chittagong / Highways / Sholoshahar railway stations.
+- **Map screen:** printed paper-map style with a deep blue sea, yellow main roads with road badges, hills, place icons, compass and title; drag, zoom and set waypoints. Tabs for **MAP**, **STATS** (jobs, fires, distance, wanted level…) and **CONTROLS**, plus an in-game clock.
 
 Made with plain HTML5 Canvas and JavaScript — a single file, no libraries.
