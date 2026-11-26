@@ -64,54 +64,80 @@ function failSnd(){tone(220,.3,'sawtooth',.05);tone(165,.45,'sawtooth',.05,.25);
 function boom(){tone(50,.6,'sawtooth',.2);tone(90,.4,'square',.08);}
 
 // ================= World / tiles =================
-const T=48,MW=80,MH=70;
-const GRASS=0,ROAD=1,SIDE=2,BLD=3,WATER=4,SAND=5,TREE=6,BRIDGE=7,PORT=8,CONT=9,PARK=10,RAIL=11,AIRPORT=12,STALL=13,MARKET=14;
-const SOLID=[0,0,0,1,1,0,1,0,0,1,0,0,0,1,0];
-// special city blocks (block coords) and special building ids
-const SPECIAL_BLOCKS={'3,0':'hospital','2,2':'crb','4,3':'market'};
-const P_HOSP=9001,P_CRB=9002,P_TERM=9003,P_TOWER=9004;
+// The city follows real Chattogram geography (north is up):
+//  Bay of Bengal on the west, Karnaphuli river flowing from Kalurghat (north-east) down to Patenga (south-west),
+//  Shah Amanat Airport at the Patenga tip, the port on the river bank, Anwara villages across the river.
+const T=48,MW=80,MH=90;
+const GRASS=0,ROAD=1,SIDE=2,BLD=3,WATER=4,SAND=5,TREE=6,BRIDGE=7,PORT=8,CONT=9,PARK=10,RAIL=11,AIRPORT=12,STALL=13,MARKET=14,FIELD=15,DROAD=16,TUNNEL=17;
+const SOLID=[0,0,0,1,1,0,1,0,0,1,0,0,0,1,0,0,0,0];
+const DRIVE_OK=t=>t===ROAD||t===BRIDGE||t===TUNNEL||t===RAIL||t===DROAD;
+const RL_X=77,RL_Y=87; // last tile of the road grid
+const P_HOSP=9001,P_CRB=9002,P_TERM=9003,P_TOWER=9004,P_CLUB=9005,P_SCHOOL=9006;
 const STALLC=['#e74c3c','#f1c40f','#2980b9','#27ae60','#e67e22','#8e44ad','#e84393'];
-// named roads: vertical lines by x, horizontal lines by y (first tile of the 2-tile road)
-const ROAD_NAMES={v:{76:'LINK ROAD'},h:{16:'CDA AVENUE',46:'STRAND ROAD',56:'PORT CONNECTING ROAD'}};
-const BOAT_SOLID=t=>t!==WATER&&t!==BRIDGE;
-// railway (north edge of the city)
-const STATIONS=[{n:'CTG Station',x:14.5*T},{n:'Sholoshahar',x:40.5*T},{n:'Hill Station',x:68.5*T}];
-const RAIL_CY=3.5*T,CAR_LEN=92,CAR_GAP=6,N_CARS=5,TRAIN_LEN=N_CARS*(CAR_LEN+CAR_GAP)-CAR_GAP;
+// Karnaphuli river centre line (tile coords), north-east -> south-west
+const RIVER=[[84,12],[76,22],[69,34],[63,46],[57,56],[50,66],[44,76],[38,84],[34,92]];
+const riverHalf=y=>2.6+clamp((y-40)/50,0,1)*1.2;
+function riverX(y){for(let k=0;k<RIVER.length-1;k++){const [x1,y1]=RIVER[k],[x2,y2]=RIVER[k+1];if(y<=y2||k===RIVER.length-2)return x1+(x2-x1)*(y-y1)/(y2-y1);}}
+function segDist(px,py,a,b){const dx=b[0]-a[0],dy=b[1]-a[1];const t=clamp(((px-a[0])*dx+(py-a[1])*dy)/(dx*dx+dy*dy),0,1);return Math.hypot(px-a[0]-dx*t,py-a[1]-dy*t);}
+function riverDist(x,y){let b=1e9;for(let k=0;k<RIVER.length-1;k++)b=Math.min(b,segDist(x,y,RIVER[k],RIVER[k+1]));return b;}
+const southBank=(x,y)=>x>riverX(y);
+// Shah Amanat Airport (tile rect) and its diagonal SW -> NE runway
+const AIR={x0:13,x1:33,y0:62,y1:82};
+const RWY={a:[15.8,79.6],b:[31,64.6],w:1.4};
+// diagonal roads (smooth, drawn on top); na/nb are the road-grid intersections they join
+const DROADS=[{n:'AIRPORT ROAD',a:[37,77],b:[47,57],na:[3,7],nb:[4,5]}];
+// named grid roads: [name, where to put the label on the big map]
+const ROAD_NAMES={v:{6:['BEACH ROAD',34],36:['CDA AVENUE',12]},h:{6:['LINK ROAD',24],26:['STATION ROAD',52],46:['STRAND ROAD',28],56:['PORT CONNECTING ROAD',10],86:['VIP ROAD',18]}};
+const BOAT_SOLID=t=>t!==WATER&&t!==BRIDGE&&t!==TUNNEL;
+// railway through the city centre with level crossings
+const RAIL_ROW=21;
+const STATIONS=[{n:'Pahartali Station',x:14.5*T},{n:'Chittagong Station',x:40.5*T},{n:'Sholoshahar Station',x:62.5*T}];
+const RAIL_CY=(RAIL_ROW+0.5)*T,CAR_LEN=92,CAR_GAP=6,N_CARS=5,TRAIN_LEN=N_CARS*(CAR_LEN+CAR_GAP)-CAR_GAP;
 const map=new Uint8Array(MW*MH), colr=new Uint8Array(MW*MH), part=new Uint16Array(MW*MH);
 const tileAt=(x,y)=>(x<0||y<0||x>=MW||y>=MH)?TREE:map[y*MW+x];
 const tileAtP=(px,py)=>tileAt(Math.floor(px/T),Math.floor(py/T));
 const ROOF=['#c9b79c','#b5aea3','#d8a7a0','#a7b9c9','#d9cfa5','#9fb59a','#c4a3c7','#e0c2a2','#a3a3a8','#cf9f7e','#e8d8c0','#b8c4b0'];
 const NROOF=12; // random roofs use only the first 12
-ROOF.push('#f2f1ec','#a9432c','#cfd6dc','#3b4a5a'); // 12 hospital, 13 CRB brick, 14 terminal, 15 tower
+// 12 hospital, 13 CRB brick, 14 terminal, 15 tower, 16/17 Agrabad glass towers, 18 school, 19/20 village tin roofs
+ROOF.push('#f2f1ec','#a9432c','#cfd6dc','#3b4a5a','#7fa7c9','#6a8fb3','#e9d8a6','#9aa4ad','#b06b3e');
 const CONTC=['#b03a2e','#2471a3','#ca6f1e','#1e8449','#7d3c98','#a04000','#117a65'];
 function isRoadLine(v,max){const m=v%10;return (m===6||m===7)&&v>=6&&v<=max;}
-function blockType(bx,by){
-  if(SPECIAL_BLOCKS[bx+','+by])return SPECIAL_BLOCKS[bx+','+by];
-  if(by>=5) return bx<=3?'port':(hash(bx,by,5)<0.3?'park':'bld');
-  if(bx>=5&&by<=3) return 'hill';
-  return hash(bx,by,1)<0.15?'park':'bld';
-}
+// city blocks (block coords = which 10x10 cell), matching real neighbourhoods
+const BLOCK_TYPES={
+  '0,0':'hill','1,0':'lake','2,0':'lake','4,0':'hospital','5,0':'hill','6,0':'hill',
+  '1,2':'park','2,2':'crb','4,2':'market','1,3':'towers','2,3':'towers',
+  '2,4':'port','3,4':'port','4,4':'port','2,5':'port','1,5':'school','3,5':'boatclub',
+  '0,5':'patenga','0,6':'patenga','0,7':'patenga','1,6':'patenga','1,7':'patenga','2,6':'patenga','2,7':'patenga',
+};
+function blockType(bx,by,cx,cy){if(southBank(cx,cy))return'village';return BLOCK_TYPES[bx+','+by]||(hash(bx,by,1)<0.12?'park':'bld');}
 function genMap(){
   for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
-    let t;const i=y*MW+x;const river=y>=49&&y<=53;
-    if(x<=2||(x<=5&&river)) t=WATER;
-    else if(y===3&&x<=77) t=RAIL;
-    else if(x<=5) t=SAND;
-    else if(river) t=(x===26||x===27||x===56||x===57)?BRIDGE:WATER;
-    else if((y===4||y===5)&&STATIONS.some(s=>Math.abs(x+0.5-s.x/T)<=4)) t=SIDE;
-    else if(x>=78||y>=68||y<=5) t=TREE;
-    else if(x>=48&&x<=75&&y>=58&&y<=65){
-      if(y<=59&&x>=62&&x<=73){t=BLD;part[i]=P_TERM;colr[i]=14;}
-      else if(y===59&&x===60){t=BLD;part[i]=P_TOWER;colr[i]=15;}
+    let t;const i=y*MW+x;const cx=x+.5,cy=y+.5;
+    const inRiver=x>=3&&riverDist(cx,cy)<riverHalf(cy);
+    if(x<=2||y>=88) t=WATER;                                         // Bay of Bengal
+    else if(inRiver){
+      if((x===66||x===67)&&y>=28&&y<=47) t=BRIDGE;                    // Shah Amanat Bridge
+      else if((y===26||y===27)&&x>=60) t=BRIDGE;                      // Kalurghat Bridge
+      else if(y===86||y===87) t=TUNNEL;                               // Karnaphuli Tunnel
+      else t=WATER;
+    }
+    else if(y===RAIL_ROW&&x<=70) t=RAIL;
+    else if(x<=5) t=SAND;                                             // beach
+    else if(y===RAIL_ROW+1&&STATIONS.some(s=>Math.abs(cx-s.x/T)<=4.5)) t=SIDE; // platforms
+    else if(y<=5||x>=78) t=TREE;
+    else if(x>=AIR.x0&&x<=AIR.x1&&y>=AIR.y0&&y<=AIR.y1){
+      if(x>=27&&x<=31&&y>=75&&y<=76){t=BLD;part[i]=P_TERM;colr[i]=14;}
+      else if(x===24&&y===74){t=BLD;part[i]=P_TOWER;colr[i]=15;}
       else t=AIRPORT;
     }
-    else if(isRoadLine(x,77)||isRoadLine(y,67)) t=ROAD;
-    else if(y===48||y===54||y===55) t=SIDE;
+    else if(x>=26&&x<=32&&y>=83&&y<=85) t=PARK;                      // Butterfly Park
+    else if(isRoadLine(x,RL_X)||isRoadLine(y,RL_Y)) t=ROAD;
     else{
       const lx=(x-8)%10, ly=(y-8)%10, bx=(x-8)/10|0, by=(y-8)/10|0;
       if(lx===0||lx===7||ly===0||ly===7) t=SIDE;
+      else if(by===1&&(ly===3||ly===4)) t=GRASS;                      // railway embankment
       else{
-        const bt=blockType(bx,by);
+        const bt=blockType(bx,by,cx,cy);
         if(bt==='hospital'){t=BLD;part[i]=P_HOSP;colr[i]=12;}
         else if(bt==='crb'){
           if((lx===1||lx===6)&&(ly===1||ly===6))t=TREE;
@@ -123,11 +149,28 @@ function genMap(){
           else t=MARKET;
         }
         else if(bt==='hill') t=hash(x,y,2)<0.8?TREE:GRASS;
+        else if(bt==='lake'){
+          const inner=lx>=2&&lx<=5&&ly>=2&&ly<=5&&!((lx===2||lx===5)&&(ly===2||ly===5));
+          t=inner?WATER:(hash(x,y,24)<0.65?TREE:GRASS);
+        }
         else if(bt==='park') t=hash(x,y,3)<0.18?TREE:PARK;
+        else if(bt==='towers'){
+          t=BLD;const p=(lx<=3?0:1)+(ly<=3?0:2);const id=((by*10+bx)*4+p)+1;part[i]=id;colr[i]=16+(p%2);
+        }
         else if(bt==='port'){
           if(ly%2===1&&lx!==3&&lx!==4){t=CONT;colr[i]=hash(bx*10+(lx<=2?0:1),by*10+ly,4)*CONTC.length|0;}
           else t=PORT;
-        } else {
+        }
+        else if(bt==='school'){if(ly<=3&&lx>=2&&lx<=5){t=BLD;part[i]=P_SCHOOL;colr[i]=18;}else t=PARK;}
+        else if(bt==='boatclub'){if(lx>=2&&lx<=4&&ly>=2&&ly<=3){t=BLD;part[i]=P_CLUB;colr[i]=12;}else t=hash(x,y,25)<0.25?TREE:PARK;}
+        else if(bt==='patenga'||bt==='village'){
+          const h=hash(x,y,30);
+          if(bt==='patenga'&&hash(x>>1,y>>1,31)<0.2)t=WATER;            // Dhumpara ponds
+          else if(h<0.2){t=BLD;part[i]=10000+i;colr[i]=19+(hash(x,y,32)<0.5?0:1);}
+          else if(h<0.4)t=TREE;
+          else t=FIELD;
+        }
+        else{
           t=BLD;const mode=hash(bx,by,6)*3|0;let p=0;
           if(mode>=1)p+=lx<=3?0:1; if(mode===2)p+=ly<=3?0:2;
           const id=((by*10+bx)*4+p)+1;part[i]=id;colr[i]=hash(id,9,7)*NROOF|0;
@@ -136,13 +179,30 @@ function genMap(){
     }
     map[i]=t;
   }
+  // diagonal roads get their own tiles; the asphalt band is drawn smoothly on top
+  for(const d of DROADS)for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){
+    const i=y*MW+x,t=map[i];
+    if(segDist(x+.5,y+.5,d.a,d.b)<1.5&&t!==WATER&&t!==ROAD&&t!==BRIDGE&&t!==RAIL&&t!==AIRPORT){map[i]=DROAD;part[i]=0;}
+  }
 }
-// road graph: intersections
-const NI=8,NJ=7;
+// last land tile west of the river on row y
+function shoreX(y){let x=Math.floor(riverX(y+.5));while(x>3&&[WATER,TUNNEL,BRIDGE].includes(map[y*MW+x]))x--;return x;}
+
+// road graph: intersections of the grid, joined where the road really exists (bridges, tunnel, diagonal roads)
+const NI=8,NJ=9;
 const nodePos=(i,j)=>({x:(7+10*i)*T,y:(7+10*j)*T});
-function edgeOK(i1,j1,i2,j2){if(i2<0||j2<0||i2>=NI||j2>=NJ)return false;if(i1===i2&&Math.min(j1,j2)===4)return i1===2||i1===5;if(i1===i2&&Math.min(j1,j2)===5&&(i1===5||i1===6))return false;return true;}
-function neighbors(i,j){return [[1,0],[-1,0],[0,1],[0,-1]].map(([a,b])=>[i+a,j+b]).filter(([a,b])=>edgeOK(i,j,a,b));}
-const nearestNode=p=>[clamp(Math.round((p.x/T-7)/10),0,NI-1),clamp(Math.round((p.y/T-7)/10),0,NJ-1)];
+let ADJ=[],NODES=[];
+function buildRoadGraph(){
+  ADJ=[];for(let i=0;i<NI;i++){ADJ[i]=[];for(let j=0;j<NJ;j++)ADJ[i][j]=[];}
+  const ok=(x0,y0,x1,y1)=>{for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++)if(!DRIVE_OK(tileAt(x,y)))return false;return true;};
+  for(let i=0;i<NI;i++)for(let j=0;j<NJ;j++){const X=6+10*i,Y=6+10*j;
+    if(i+1<NI&&ok(X,Y,X+11,Y+1)){ADJ[i][j].push([i+1,j]);ADJ[i+1][j].push([i,j]);}
+    if(j+1<NJ&&ok(X,Y,X+1,Y+11)){ADJ[i][j].push([i,j+1]);ADJ[i][j+1].push([i,j]);}}
+  for(const d of DROADS){const [a,b]=d.na,[c,e]=d.nb;ADJ[a][b].push([c,e]);ADJ[c][e].push([a,b]);}
+  NODES=[];for(let i=0;i<NI;i++)for(let j=0;j<NJ;j++)if(ADJ[i][j].length)NODES.push([i,j]);
+}
+function neighbors(i,j){return(ADJ[i]&&ADJ[i][j])?ADJ[i][j]:[];}
+function nearestNode(p){let best=[0,0],bd=1e18;for(const n of NODES){const q=nodePos(n[0],n[1]);const d=(q.x-p.x)**2+(q.y-p.y)**2;if(d<bd){bd=d;best=n;}}return best;}
 function bfsNext(s,g){
   if(s[0]===g[0]&&s[1]===g[1])return null;
   const key=a=>a[0]*10+a[1];const prev=new Map([[key(s),null]]);const q=[s];
@@ -154,27 +214,35 @@ function bfsNext(s,g){
 // ================= Landmarks & jobs =================
 const lmAt=(i,j)=>({x:(8.5+10*i)*T,y:(8.5+10*j)*T});
 const LANDMARKS=[
-  {n:'Patenga Beach',x:4.5*T,y:61.5*T},
-  {n:'Port Gate',...lmAt(1,5)},
-  {n:'Karnaphuli Bridge',...lmAt(2,4)},
-  {n:'Agrabad',...lmAt(2,3)},
-  {n:'Halishahar',...lmAt(0,2)},
-  {n:'Tiger Pass',...lmAt(2,1)},
-  {n:'GEC Circle',...lmAt(3,1)},
-  {n:'New Market',...lmAt(3,3)},
-  {n:'Chawkbazar',...lmAt(4,2)},
-  {n:"Foy's Lake",...lmAt(5,0)},
-  {n:'Bahaddarhat',...lmAt(6,3)},
-  {n:'Kalurghat',...lmAt(6,4)},
-  {n:'Shah Amanat Airport',...lmAt(5,5)},
-  {n:'Chittagong Medical College',...lmAt(3,0)},
+  {n:'Patenga Beach',x:4.5*T,y:80.5*T},
+  {n:'Shah Amanat Airport',x:35.5*T,y:71.5*T},
+  {n:'Butterfly Park',x:29.5*T,y:84.5*T},
+  {n:'15 No Ghat',x:0,y:80.5*T,shore:true},
+  {n:'Chittagong Boat Club',...lmAt(3,5)},
+  {n:'BAF Shaheen College',...lmAt(1,5)},
+  {n:'Port Gate',...lmAt(3,4)},
+  {n:'Agrabad',...lmAt(1,3)},
+  {n:'Halishahar',...lmAt(0,4)},
   {n:'CRB',...lmAt(2,2)},
-  {n:'Link Road',x:75.5*T,y:20.5*T},
-  {n:'Reazuddin Bazar',...lmAt(4,3)},
-  {n:'Sholoshahar Station',x:40.5*T,y:5.4*T},
+  {n:'Tiger Pass',...lmAt(2,1)},
+  {n:'New Market',...lmAt(3,2)},
+  {n:'Reazuddin Bazar',...lmAt(4,2)},
+  {n:'GEC Circle',...lmAt(3,0)},
+  {n:'Chittagong Medical College',...lmAt(4,0)},
+  {n:'Chawkbazar',...lmAt(4,1)},
+  {n:'Bahaddarhat',...lmAt(5,1)},
+  {n:'Kalurghat',...lmAt(6,2)},
+  {n:'Shah Amanat Bridge',x:65.5*T,y:33.5*T},
+  {n:"Foy's Lake",...lmAt(1,0)},
+  {n:'Link Road',x:12.5*T,y:8.5*T},
+  {n:'Pahartali Station',x:14.5*T,y:(RAIL_ROW+1.5)*T},
+  {n:'Chittagong Station',x:40.5*T,y:(RAIL_ROW+1.5)*T},
+  {n:'Sholoshahar Station',x:62.5*T,y:(RAIL_ROW+1.5)*T},
+  {n:'Anwara',...lmAt(6,6)},
 ];
-const POLICE_STN={n:'Kotwali Thana',...lmAt(4,1)};
-const HOSPITAL=LANDMARKS[13];
+const POLICE_STN={n:'Kotwali Thana',...lmAt(3,3)};
+const HOSPITAL=LANDMARKS.find(l=>l.n==='Chittagong Medical College');
+const AGRABAD=LANDMARKS.find(l=>l.n==='Agrabad');
 const ITEMS=['a basket of shutki (dried fish)','a pot of mezban beef','a box of mangoes','garment samples','a wedding cake','medicine for a patient','a crate of hill tea','a bundle of saris'];
 const PASSENGERS=['A student','A businessman','A tourist','A garments worker','An auntie with shopping','A cricket fan','A sailor from the port'];
 
@@ -195,11 +263,20 @@ const VNAME={ambulance:'Ambulance',car:'Car',cng:'CNG Auto-rickshaw',bus:'Bus',t
 const RIDERS=['#3498db','#e74c3c','#ecf0f1','#f1c40f','#2ecc71','#9b59b6'];
 function makeVehicle(type,x,y,a){const d=VT[type];return{type,x,y,a,speed:0,w:d.w,h:d.h,max:d.max,acc:d.acc,color:pick(d.colors),rider:pick(RIDERS),hp:100,ai:'parked',stuck:0,rev:0,wreck:false,block:0,goal:null,alt:0,keep:false};}
 const SPECIALS=[
-  {type:'plane',x:50.5*T,y:62*T,a:0},
-  {type:'boat',x:14.5*T,y:49.6*T,a:0},{type:'boat',x:36.5*T,y:53.4*T,a:Math.PI},{type:'boat',x:2.3*T,y:20*T,a:Math.PI/2},
-  {type:'bike',x:26.4*T,y:38.4*T,a:-Math.PI/2},{type:'rickshaw',x:29.5*T,y:37.6*T,a:0},
-  {type:'ambulance',x:37.5*T,y:12*T,a:Math.PI/2},
+  {type:'plane',x:16.6*T,y:78.8*T,a:Math.atan2(RWY.b[1]-RWY.a[1],RWY.b[0]-RWY.a[0])},     // runway, south-west end
+  {type:'boat',x:0,y:80.5*T,shoreY:80,a:-0.9},{type:'boat',x:0,y:52.5*T,shoreY:52,a:-0.9},  // 15 No Ghat, Sadarghat
+  {type:'boat',x:2.3*T,y:40*T,a:Math.PI/2},                                                  // Bay of Bengal
+  {type:'bike',x:16.4*T,y:38.4*T,a:-Math.PI/2},{type:'rickshaw',x:19.5*T,y:37.6*T,a:0},        // Agrabad
+  {type:'ambulance',x:47.5*T,y:12*T,a:Math.PI/2},                                            // CMCH
 ];
+// boats and the ghat sit just off the real river bank, which is only known after the map is made
+let TUN={x0:33,x1:40},JETTIES=[];
+function placeOnShore(){
+  for(const s of SPECIALS)if(s.shoreY!==undefined)s.x=(shoreX(s.shoreY)+2.6)*T;
+  for(const l of LANDMARKS)if(l.shore)l.x=(shoreX(Math.floor(l.y/T))+0.5)*T;
+  JETTIES=[{x:shoreX(80),y:80},{x:shoreX(62),y:62},{x:shoreX(52),y:52}];
+  let a=-1,b=-1;for(let x=0;x<MW;x++)if(map[86*MW+x]===TUNNEL){if(a<0)a=x;b=x;}if(a>=0)TUN={x0:a,x1:b};
+}
 function ensureSpecials(force){
   for(const s of SPECIALS){if(s.v&&vehicles.includes(s.v))continue;if(!force&&Math.hypot(s.x-player.x,s.y-player.y)<700)continue;
     const v=makeVehicle(s.type,s.x,s.y,s.a);v.keep=true;vehicles.push(v);s.v=v;}
@@ -226,13 +303,13 @@ function addMoney(n){money=Math.max(0,money+n);store.set('ctgrush_money',money);
 function addWanted(n,why){const before=wanted;wanted=Math.min(5,wanted+n);wantedCool=0;if(wanted>before)toast((why||'Crime')+' — Wanted '+'★'.repeat(wanted),'#ff6b6b');}
 
 // traffic
-function trafficTarget(v){const a=nodePos(v.fi,v.fj),b=nodePos(v.ti,v.tj);const L=10*T;const dx=(b.x-a.x)/L,dy=(b.y-a.y)/L;
-  return{x:a.x+dx*v.t+dy*T*0.5,y:a.y+dy*v.t-dx*T*0.5,a:Math.atan2(dy,dx),dx,dy};}
+function trafficTarget(v){const a=nodePos(v.fi,v.fj),b=nodePos(v.ti,v.tj);const L=Math.hypot(b.x-a.x,b.y-a.y)||1;const dx=(b.x-a.x)/L,dy=(b.y-a.y)/L;
+  return{x:a.x+dx*v.t+dy*T*0.5,y:a.y+dy*v.t-dx*T*0.5,a:Math.atan2(dy,dx),dx,dy,L};}
 function spawnTraffic(far){
   for(let tries=0;tries<40;tries++){
-    const i=R()*NI|0,j=R()*NJ|0;const nb=neighbors(i,j);const [ti,tj]=pick(nb);
+    const [i,j]=pick(NODES);const nb=neighbors(i,j);if(!nb.length)continue;const [ti,tj]=pick(nb);
     const r=R();const type=r<.27?'cng':r<.5?'car':r<.64?'bike':r<.78?'rickshaw':r<.9?'bus':'truck';
-    const v=makeVehicle(type,0,0,0);v.ai='traffic';v.fi=i;v.fj=j;v.ti=ti;v.tj=tj;v.t=40+R()*380;v.cruise=v.max*(0.5+R()*0.2);
+    const v=makeVehicle(type,0,0,0);v.ai='traffic';v.fi=i;v.fj=j;v.ti=ti;v.tj=tj;v.t=0;v.t=40+R()*(trafficTarget(v).L-80);v.cruise=v.max*(0.5+R()*0.2);
     const p=trafficTarget(v);v.x=p.x;v.y=p.y;v.a=p.a;
     const d=Math.hypot(p.x-player.x,p.y-player.y);
     if(far?d<900:d<200)continue;
@@ -240,13 +317,13 @@ function spawnTraffic(far){
     vehicles.push(v);return;
   }
 }
-function pedWalkable(t){return t===SIDE||t===PARK||t===SAND||t===GRASS||t===MARKET;}
+function pedWalkable(t){return t===SIDE||t===PARK||t===SAND||t===GRASS||t===MARKET||t===FIELD;}
 const SHIRTS=['#e74c3c','#3498db','#f1c40f','#ecf0f1','#9b59b6','#1abc9c','#e67e22','#ff6fae','#2ecc71','#c0392b','#f5d0a9'];
 function spawnPed(far,want=SIDE){
   for(let k=0;k<3000;k++){const tx=R()*MW|0,ty=R()*MH|0;if(map[ty*MW+tx]!==want)continue;
     const x=(tx+.5)*T,y=(ty+.5)*T;if(far&&Math.hypot(x-player.x,y-player.y)<800)continue;
     return{x,y,dir:R()*4|0,sp:.5+R()*.5,shirt:pick(SHIRTS),down:0,flee:0,a:0,walk:0};}
-  return{x:LANDMARKS[3].x,y:LANDMARKS[3].y,dir:0,sp:.6,shirt:'#fff',down:0,flee:0,a:0,walk:0};
+  return{x:AGRABAD.x,y:AGRABAD.y,dir:0,sp:.6,shirt:'#fff',down:0,flee:0,a:0,walk:0};
 }
 function newJob(){
   const used=new Set(jobs.map(j=>j.from));if(mission)used.add(mission.to);
@@ -304,7 +381,7 @@ function ejectPlayer(v,far){
 }
 function toggleVehicle(){
   if(player.train){
-    if(train.stopT>0){player.train=false;player.y=4.6*T;toast('Got off at '+stationAt().n,'#9be7ff');}
+    if(train.stopT>0){player.train=false;player.y=(RAIL_ROW+1.6)*T;toast('Got off at '+stationAt().n,'#9be7ff');}
     else toast('Wait until the train stops');
     return;
   }
@@ -348,7 +425,7 @@ function failMission(why){if(!mission)return;toast(why,'#ff8f8f');failSnd();miss
 // ================= Update =================
 function updatePlayerCar(v){
   const up=keys.KeyW||keys.ArrowUp,dn=keys.KeyS||keys.ArrowDown,lf=keys.KeyA||keys.ArrowLeft,rt=keys.KeyD||keys.ArrowRight,hb=keys.Space;
-  const t=tileAtP(v.x,v.y);const surf=(t===ROAD||t===BRIDGE||t===PORT||t===AIRPORT)?1:(t===SIDE?0.8:0.6);
+  const t=tileAtP(v.x,v.y);const surf=(DRIVE_OK(t)||t===PORT||t===AIRPORT)?1:(t===SIDE?0.8:0.6);
   const max=v.max*surf*(v.hp<30?0.8:1);
   if(up)v.speed+=v.acc*(v.speed<0?2:1);
   if(dn)v.speed-=v.speed>0?v.acc*2:v.acc*0.7;
@@ -376,7 +453,7 @@ function updatePlane(v){
   const up=keys.KeyW||keys.ArrowUp,dn=keys.KeyS||keys.ArrowDown,lf=keys.KeyA||keys.ArrowLeft,rt=keys.KeyD||keys.ArrowRight;
   const steer=(rt?1:0)-(lf?1:0);
   if(v.alt<=0){
-    const t=tileAtP(v.x,v.y);const surf=(t===AIRPORT||t===ROAD||t===BRIDGE)?1:0.45;
+    const t=tileAtP(v.x,v.y);const surf=(t===AIRPORT||DRIVE_OK(t))?1:0.45;
     if(up)v.speed+=v.acc;if(dn)v.speed-=v.speed>0?0.2:0.05;if(!up&&!dn)v.speed*=0.985;
     v.speed=clamp(v.speed,-1.5,v.max*surf+0.5);
     v.a+=steer*0.035*clamp(v.speed/3,-1,1);
@@ -389,7 +466,7 @@ function updatePlane(v){
     if(frame%3===0)puff(v.x-Math.cos(v.a)*34,v.y-Math.sin(v.a)*34,'rgba(255,255,255,.6)',1,.2,4,30);
     if(v.alt<=0){
       const t=tileAtP(v.x,v.y);
-      if(t===AIRPORT||t===ROAD||t===BRIDGE){v.speed=Math.min(v.speed,4);toast('Smooth landing!','#7dff9b');chime();}
+      if(t===AIRPORT||(DRIVE_OK(t)&&t!==TUNNEL)){v.speed=Math.min(v.speed,4);toast('Smooth landing!','#7dff9b');chime();}
       else{toast('Crash landing! Land on the runway or a road next time.','#ff8f8f');explode(v);}
     }
   }
@@ -398,7 +475,7 @@ function updateTrain(){
   const tr=train;
   if(tr.stopT>0){
     tr.stopT--;
-    if(tr.stopT===1&&Math.abs(tr.pos-player.x)<1200&&player.y<15*T){tone(196,.7,'sawtooth',.05);tone(247,.7,'sawtooth',.04);}
+    if(tr.stopT===1&&Math.abs(tr.pos-player.x)<1200&&Math.abs(player.y-RAIL_CY)<12*T){tone(196,.7,'sawtooth',.05);tone(247,.7,'sawtooth',.04);}
   } else {
     const target=STATIONS[tr.next].x;const rem=(target-tr.pos)*tr.dir;
     const vmax=Math.max(0.4,Math.min(6.5,Math.sqrt(2*0.05*Math.max(0,rem))));
@@ -434,6 +511,7 @@ function copGoal(v,tgt){
   const D=distField();let best=null,bs=1e9;
   for(let i=0;i<NI;i++)for(let j=0;j<NJ;j++){
     const p=nodePos(i,j);const dx=Math.abs(p.x-v.x),dy=Math.abs(p.y-v.y);const d=Math.hypot(dx,dy);
+    if(!neighbors(i,j).length)continue;
     if(d<1.4*T){if(D[i*NJ+j]===0)return{x:tgt.x,y:tgt.y};continue;}
     if(d>10.6*T||(dx>1.5*T&&dy>1.5*T))continue;
     if(SOLID[tileAtP((p.x+v.x)/2,(p.y+v.y)/2)])continue;
@@ -460,12 +538,15 @@ function updateTraffic(v){
   const check=(o,ow)=>{const rx=o.x-v.x,ry=o.y-v.y;const f=rx*tg.dx+ry*tg.dy;if(f<=0||f>look+ow)return;if(Math.abs(rx*tg.dy-ry*tg.dx)<22)blocked=true;};
   for(const o of vehicles){if(o===v||o.alt>0||o.type==='boat')continue;if(Math.abs(o.x-v.x)>130||Math.abs(o.y-v.y)>130)continue;check(o,o.w/2);}
   if(!player.car)check(player,8);
+  // wait at the level crossing while a train is near
+  if(tileAtP(v.x,v.y)!==RAIL){const ax=v.x+tg.dx*(v.w/2+34),ay=v.y+tg.dy*(v.w/2+34);
+    if(tileAtP(ax,ay)===RAIL&&Math.abs(train.pos-ax)<TRAIN_LEN/2+320&&(train.speed>0.2||train.stopT<90))blocked=true;}
   if(blocked)v.block++;else v.block=0;
   if(v.block>200){blocked=false;if(v.block>280)v.block=0;}
   if(blocked&&v.block===60&&Math.hypot(v.x-player.x,v.y-player.y)<300&&R()<.5)horn();
   v.speed+=clamp((blocked?0:v.cruise)-v.speed,-0.35,0.06);
   v.t+=v.speed;
-  if(v.t>=10*T){v.t-=10*T;const nb=neighbors(v.ti,v.tj).filter(([a,b])=>!(a===v.fi&&b===v.fj));const n=nb.length?pick(nb):[v.fi,v.fj];v.fi=v.ti;v.fj=v.tj;v.ti=n[0];v.tj=n[1];}
+  if(v.t>=tg.L){v.t-=tg.L;const nb=neighbors(v.ti,v.tj).filter(([a,b])=>!(a===v.fi&&b===v.fj));const n=nb.length?pick(nb):[v.fi,v.fj];v.fi=v.ti;v.fj=v.tj;v.ti=n[0];v.tj=n[1];}
   const ng=trafficTarget(v);v.x+=(ng.x-v.x)*0.25;v.y+=(ng.y-v.y)*0.25;v.a+=wrapA(ng.a-v.a)*0.2;
 }
 function vehicleCollisions(){
@@ -619,21 +700,25 @@ function drawTiles(x0,y0,x1,y1){
     switch(t){
       case ROAD:{
         ctx.fillStyle='#3b3c42';ctx.fillRect(px,py,T,T);
-        const vr=isRoadLine(x,77),hr=isRoadLine(y,67);ctx.fillStyle='rgba(255,255,255,.6)';
+        const vr=isRoadLine(x,RL_X),hr=isRoadLine(y,RL_Y);ctx.fillStyle='rgba(255,255,255,.6)';
         if(vr&&!hr){
-          if(isRoadLine(y-1,67))for(let k=0;k<5;k++)ctx.fillRect(px+3+k*9,py+2,5,14);
-          else if(isRoadLine(y+1,67))for(let k=0;k<5;k++)ctx.fillRect(px+3+k*9,py+T-16,5,14);
-          else if(x===76){ctx.fillStyle='#f5c518';ctx.fillRect(px+T-4,py,3,T);ctx.fillRect(px+T+1,py,3,T);}
+          if(isRoadLine(y-1,RL_Y))for(let k=0;k<5;k++)ctx.fillRect(px+3+k*9,py+2,5,14);
+          else if(isRoadLine(y+1,RL_Y))for(let k=0;k<5;k++)ctx.fillRect(px+3+k*9,py+T-16,5,14);
           else if(x%10===6){ctx.fillStyle='rgba(255,220,120,.7)';ctx.fillRect(px+T-1.5,py+6,3,14);ctx.fillRect(px+T-1.5,py+30,3,14);}
         } else if(hr&&!vr){
-          if(isRoadLine(x-1,77))for(let k=0;k<5;k++)ctx.fillRect(px+2,py+3+k*9,14,5);
-          else if(isRoadLine(x+1,77))for(let k=0;k<5;k++)ctx.fillRect(px+T-16,py+3+k*9,14,5);
+          if(isRoadLine(x-1,RL_X))for(let k=0;k<5;k++)ctx.fillRect(px+2,py+3+k*9,14,5);
+          else if(isRoadLine(x+1,RL_X))for(let k=0;k<5;k++)ctx.fillRect(px+T-16,py+3+k*9,14,5);
+          else if(y===6){ctx.fillStyle='#f5c518';ctx.fillRect(px,py+T-4,T,3);ctx.fillRect(px,py+T+1,T,3);} // Link Road: double yellow
           else if(y%10===6){ctx.fillStyle='rgba(255,220,120,.7)';ctx.fillRect(px+6,py+T-1.5,14,3);ctx.fillRect(px+30,py+T-1.5,14,3);}
         }
         break;}
       case BRIDGE:
         ctx.fillStyle='#45464d';ctx.fillRect(px,py,T,T);ctx.fillStyle='#c9c9c9';
-        if(x%10===6){ctx.fillRect(px,py,6,T);ctx.fillStyle='rgba(255,220,120,.7)';ctx.fillRect(px+T-1.5,py+10,3,20);}else ctx.fillRect(px+T-6,py,6,T);
+        if(isRoadLine(y,RL_Y)&&!isRoadLine(x,RL_X)){ // east-west bridge (Kalurghat)
+          if(y%10===6){ctx.fillRect(px,py,T,6);ctx.fillStyle='rgba(255,220,120,.7)';ctx.fillRect(px+10,py+T-1.5,20,3);}else ctx.fillRect(px,py+T-6,T,6);
+          ctx.fillStyle='#8a8a8a';if(y%10===6)ctx.fillRect(px+T/2-2,py,4,6);else ctx.fillRect(px+T/2-2,py+T-6,4,6);
+        }
+        else if(x%10===6){ctx.fillRect(px,py,6,T);ctx.fillStyle='rgba(255,220,120,.7)';ctx.fillRect(px+T-1.5,py+10,3,20);}else ctx.fillRect(px+T-6,py,6,T);
         ctx.fillStyle='#8a8a8a';if(x%10===6)ctx.fillRect(px,py+T/2-2,6,4);else ctx.fillRect(px+T-6,py+T/2-2,6,4);
         break;
       case SIDE:{
@@ -673,18 +758,27 @@ function drawTiles(x0,y0,x1,y1){
         if(tileAt(x+1,y)===SAND){ctx.fillStyle='rgba(255,255,255,'+(0.25+0.15*ph)+')';ctx.fillRect(px+T-5,py,5,T);}
         break;}
       case SAND:{ctx.fillStyle='#e3cf98';ctx.fillRect(px,py,T,T);ctx.fillStyle='rgba(150,120,60,.25)';const h=hash(x,y,14);circle(px+h*40+4,py+((h*997)%40)+4,1.5);circle(px+((h*311)%40)+4,py+h*40+4,1.5);break;}
-      case RAIL:
-        ctx.fillStyle='#7b6f62';ctx.fillRect(px,py,T,T);ctx.fillStyle='#5a3e2b';for(let k=2;k<T;k+=12)ctx.fillRect(px+k,py+8,6,32);
-        ctx.fillStyle='#c8c8c8';ctx.fillRect(px,py+14,T,3);ctx.fillRect(px,py+31,T,3);break;
-      case AIRPORT:{
-        const run=y===61||y===62;ctx.fillStyle=run?'#3a3b40':'#62656c';ctx.fillRect(px,py,T,T);
-        if(run){ctx.fillStyle='#f2f2f2';
-          if(y===61)ctx.fillRect(px,py+3,T,3);else{ctx.fillRect(px,py+T-6,T,3);if(x%2===0)ctx.fillRect(px+6,py-2,32,4);}
-          if(x===48||x===75)for(let k=0;k<4;k++)ctx.fillRect(px+8,py+8+k*10,30,5);
-        } else {
-          if(y===59){ctx.fillStyle='rgba(255,210,0,.7)';ctx.fillRect(px,py+T/2-1.5,T,3);}
-          if((y===60||y===63)&&x%2===0){ctx.fillStyle='#5dade2';circle(px+T/2,py+(y===60?T-6:6),3);}
-        }
+      case RAIL:{
+        const xing=isRoadLine(x,RL_X); // level crossing
+        ctx.fillStyle=xing?'#3b3c42':'#7b6f62';ctx.fillRect(px,py,T,T);
+        if(!xing){ctx.fillStyle='#5a3e2b';for(let k=2;k<T;k+=12)ctx.fillRect(px+k,py+8,6,32);}
+        ctx.fillStyle='#c8c8c8';ctx.fillRect(px,py+14,T,3);ctx.fillRect(px,py+31,T,3);
+        if(xing){for(let k=0;k<T;k+=12){ctx.fillStyle='#f5c518';ctx.fillRect(px+k,py,6,4);ctx.fillRect(px+k,py+T-4,6,4);ctx.fillStyle='#111';ctx.fillRect(px+k+6,py,6,4);ctx.fillRect(px+k+6,py+T-4,6,4);}}
+        break;}
+      case AIRPORT:{ // airfield grass; runway, taxiway and apron are drawn smoothly on top
+        ctx.fillStyle=(x+y)%2?'#8db57a':'#88b075';ctx.fillRect(px,py,T,T);break;}
+      case FIELD:{ // paddy fields
+        ctx.fillStyle=hash(x>>1,y>>1,40)<.5?'#9cc25a':'#b5cc66';ctx.fillRect(px,py,T,T);
+        ctx.fillStyle='rgba(60,90,30,.22)';for(let k=6;k<T;k+=10)ctx.fillRect(px,py+k,T,2);
+        ctx.fillStyle='rgba(120,90,50,.35)';if(x%3===0)ctx.fillRect(px,py,2,T);if(y%3===0)ctx.fillRect(px,py,T,2);
+        break;}
+      case DROAD: // base under a diagonal road: verge
+        ctx.fillStyle='#8fa36f';ctx.fillRect(px,py,T,T);break;
+      case TUNNEL:{ // river water with the tunnel visible underneath
+        ctx.fillStyle='#1d5d86';ctx.fillRect(px,py,T,T);
+        ctx.fillStyle='rgba(20,20,30,.45)';ctx.fillRect(px,py+(y%10===6?8:0),T,T-8);
+        ctx.fillStyle='rgba(255,220,120,.35)';if(y%10===6)ctx.fillRect(px+8,py+T-1.5,20,3);
+        const ph=Math.sin(tm*0.03+x*0.7+y*1.3);ctx.fillStyle='rgba(255,255,255,.13)';ctx.fillRect(px+10+ph*6,py+14,14,2);
         break;}
       case PORT:ctx.fillStyle='#8f8b80';ctx.fillRect(px,py,T,T);ctx.fillStyle='rgba(255,230,0,.35)';if(hash(x,y,15)<.15)ctx.fillRect(px,py+T/2,T,3);break;
       case CONT:{
@@ -698,7 +792,9 @@ function drawTiles(x0,y0,x1,y1){
         if(part[y*MW+x-1]!==id){ctx.fillStyle='rgba(255,255,255,.12)';ctx.fillRect(px,py,3,T);}
         if(part[y*MW+x+1]!==id){ctx.fillStyle='rgba(0,0,0,.22)';ctx.fillRect(px+T-6,py,6,T);}
         if(part[(y+1)*MW+x]!==id){ctx.fillStyle='rgba(0,0,0,.38)';ctx.fillRect(px,py+T-11,T,11);ctx.fillStyle='rgba(255,240,180,.35)';for(let k=6;k<T-6;k+=12)ctx.fillRect(px+k,py+T-8,5,4);}
-        const h=id>=9000?1:hash(x,y,16);
+        if(colr[i]===16||colr[i]===17){ctx.fillStyle='rgba(255,255,255,.22)';for(let k=6;k<T;k+=10)ctx.fillRect(px,py+k,T,2);ctx.fillStyle='rgba(0,0,0,.08)';for(let k=8;k<T;k+=12)ctx.fillRect(px+k,py,1,T);}
+        if(colr[i]===19||colr[i]===20){ctx.fillStyle='rgba(0,0,0,.18)';for(let k=4;k<T;k+=7)ctx.fillRect(px+k,py,2,T);ctx.fillStyle='rgba(255,255,255,.25)';ctx.fillRect(px,py+T/2-1,T,2);}
+        const h=(id>=9000||colr[i]>=16)?1:hash(x,y,16);
         if(h<.13){ctx.fillStyle='rgba(0,0,0,.3)';circle(px+T/2+3,py+T/2+3,8);ctx.fillStyle='#1d1d1d';circle(px+T/2,py+T/2,8);ctx.fillStyle='#3a3a3a';circle(px+T/2-2,py+T/2-2,3);}
         else if(h<.22){ctx.fillStyle='#8d8d8d';ctx.fillRect(px+12,py+14,14,10);ctx.fillStyle='#666';ctx.fillRect(px+14,py+16,10,2);}
         else if(h<.27){ctx.strokeStyle='rgba(60,60,60,.6)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(px+4,py+10);ctx.lineTo(px+T-4,py+20);ctx.stroke();}
@@ -710,44 +806,105 @@ function drawTiles(x0,y0,x1,y1){
 function roofText(txt,x,y,size,col){ctx.font=`900 ${size}px Segoe UI, sans-serif`;ctx.textAlign='center';ctx.lineWidth=4;ctx.strokeStyle='rgba(0,0,0,.35)';ctx.strokeText(txt,x,y);ctx.fillStyle=col;ctx.fillText(txt,x,y);}
 function drawPlaces(inView,x0,y0,x1,y1){
   ctx.save();
-  // Chittagong Medical College Hospital: block (3,0) inner x39-44, y9-14
-  const hx=42*T,hy=12*T;
-  if(inView({x:hx,y:hy})||inView({x:hx-3*T,y:hy-3*T})){
+  const near=(tx,ty,r)=>tx*T>cam.x-VW/2/cam.z-r*T&&tx*T<cam.x+VW/2/cam.z+r*T&&ty*T>cam.y-VH/2/cam.z-r*T&&ty*T<cam.y+VH/2/cam.z+r*T;
+  // ---- Shah Amanat International Airport: diagonal runway 05/23, taxiway, apron, terminal, tower ----
+  if(near((AIR.x0+AIR.x1)/2,(AIR.y0+AIR.y1)/2,16)){
+    const [ax,ay]=RWY.a,[bx,by]=RWY.b;const len=Math.hypot(bx-ax,by-ay)*T,ang=Math.atan2(by-ay,bx-ax),w=RWY.w*T;
+    // perimeter fence
+    ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=2;ctx.setLineDash([6,6]);ctx.strokeRect(AIR.x0*T+3,AIR.y0*T+3,(AIR.x1-AIR.x0+1)*T-6,(AIR.y1-AIR.y0+1)*T-6);ctx.setLineDash([]);
+    ctx.save();ctx.translate(ax*T,ay*T);ctx.rotate(ang);
+    // taxiway (terminal side) with 3 links to the runway
+    const tw=2.6*T;ctx.fillStyle='#5b5e66';ctx.fillRect(T*1.5,tw-T*0.35,len-T*3,T*0.7);
+    for(const f of[0.12,0.5,0.88]){ctx.fillRect(len*f-T*0.35,w/2,T*0.7,tw-w/2);}
+    ctx.strokeStyle='rgba(255,210,0,.8)';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(T*1.5,tw);ctx.lineTo(len-T*1.5,tw);ctx.stroke();
+    // runway
+    ctx.fillStyle='#34353a';ctx.fillRect(-T*0.6,-w/2,len+T*1.2,w);
+    ctx.fillStyle='#f2f2f2';ctx.fillRect(-T*0.6,-w/2+3,len+T*1.2,2);ctx.fillRect(-T*0.6,w/2-5,len+T*1.2,2);
+    for(let k=T*1.6;k<len-T*1.6;k+=46)ctx.fillRect(k,-1.5,26,3);
+    for(const e of[0,1]){const sx=e?len-T*0.5:-T*0.1;for(let k=-3;k<=3;k++)if(k)ctx.fillRect(sx-(e?14:0)+0,k*8-2,14,4);}
+    ctx.font='900 22px Segoe UI, sans-serif';ctx.textAlign='center';
+    ctx.save();ctx.translate(T*1.1,0);ctx.rotate(Math.PI/2);ctx.fillText('05',0,8);ctx.restore();
+    ctx.save();ctx.translate(len-T*1.1,0);ctx.rotate(-Math.PI/2);ctx.fillText('23',0,8);ctx.restore();
+    // runway edge lights
+    ctx.fillStyle=(frame>>5)%2?'#9fe1ff':'#5dade2';for(let k=0;k<=len;k+=T)for(const s of[-1,1])circle(k,s*(w/2+5),2.2);
+    ctx.restore();
+    // apron in front of the terminal
+    ctx.fillStyle='#6e717a';ctx.fillRect(25.6*T,72.4*T,7*T,2.6*T);
+    ctx.strokeStyle='rgba(255,210,0,.8)';ctx.lineWidth=2;for(let k=0;k<3;k++){ctx.strokeRect((26.2+k*2.1)*T,72.8*T,1.6*T,1.6*T);}
+    // terminal roof + name
+    ctx.fillStyle='rgba(120,170,210,.7)';for(let k=27*T+6;k<32*T-10;k+=24)ctx.fillRect(k,77*T-14,14,8);
+    roofText('SHAH AMANAT',29.5*T,75.8*T,16,'#1b3d6e');roofText('INTERNATIONAL AIRPORT',29.5*T,76.6*T,11,'#1b3d6e');
+    // control tower
+    const tx=24.5*T,ty=74.5*T;ctx.fillStyle='#9fd3e6';circle(tx,ty,17);ctx.fillStyle='#3b4a5a';circle(tx,ty,9);ctx.fillStyle=(frame>>4)%2?'#ff3b3b':'#661010';circle(tx,ty,3.5);
+  }
+  // ---- diagonal roads (Airport Road along the Karnaphuli) ----
+  for(const d of DROADS){
+    const ax=d.a[0]*T,ay=d.a[1]*T,bx=d.b[0]*T,by=d.b[1]*T;if(!near((d.a[0]+d.b[0])/2,(d.a[1]+d.b[1])/2,14))continue;
+    ctx.lineCap='butt';ctx.strokeStyle='#d6cfbf';ctx.lineWidth=2*T+8;ctx.beginPath();ctx.moveTo(ax,ay);ctx.lineTo(bx,by);ctx.stroke();
+    ctx.strokeStyle='#3b3c42';ctx.lineWidth=2*T;ctx.stroke();
+    ctx.strokeStyle='rgba(255,220,120,.75)';ctx.lineWidth=3;ctx.setLineDash([16,18]);ctx.stroke();ctx.setLineDash([]);
+    ctx.save();ctx.translate((ax+bx)/2,(ay+by)/2);let a=Math.atan2(by-ay,bx-ax);if(Math.abs(a)>Math.PI/2)a+=Math.PI;ctx.rotate(a);
+    ctx.font='bold 15px Segoe UI, sans-serif';ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,.4)';ctx.fillText(d.n,0,-T*0.45);ctx.restore();
+  }
+  // ---- Karnaphuli Tunnel portals ----
+  if(near((TUN.x0+TUN.x1)/2,86.5,12)){
+    for(const [x,dir] of[[TUN.x0,-1],[TUN.x1+1,1]]){
+      ctx.fillStyle='#2b2b30';ctx.fillRect(x*T-(dir<0?10:0),86*T-6,10,2*T+12);
+      ctx.fillStyle='#8a8a8a';ctx.fillRect(x*T-(dir<0?14:-10),86*T-10,4,2*T+20);
+    }
+    roofText('KARNAPHULI TUNNEL',(TUN.x0+TUN.x1+1)/2*T,85.6*T,14,'#ffe066');
+  }
+  // ---- Patenga Sea Beach: umbrellas and stalls on the sand ----
+  if(near(4,80,10)){
+    const UC=['#e74c3c','#f1c40f','#2980b9','#27ae60','#e84393'];
+    for(let y=72;y<=86;y+=2){const ux=(3.6+hash(y,3,50)*1.6)*T,uy=(y+0.5)*T,c=UC[y%5];
+      ctx.fillStyle='rgba(0,0,0,.2)';circle(ux+4,uy+5,13);ctx.fillStyle=c;circle(ux,uy,13);ctx.fillStyle='rgba(255,255,255,.8)';
+      for(let k=0;k<4;k++){ctx.beginPath();ctx.moveTo(ux,uy);ctx.arc(ux,uy,13,k*Math.PI/2,k*Math.PI/2+Math.PI/4);ctx.closePath();ctx.fill();}}
+    roofText('PATENGA SEA BEACH',4*T,71.2*T,15,'#7a4a10');
+  }
+  // ---- jetties: 15 No Ghat and the Boat Club ----
+  for(const g of JETTIES){if(!near(g.x,g.y,8))continue;
+    ctx.fillStyle='#7a5230';ctx.fillRect((g.x+0.6)*T,(g.y+0.25)*T,2.4*T,0.5*T);
+    ctx.fillStyle='#5a3a20';for(let k=0;k<2.4*T;k+=10)ctx.fillRect((g.x+0.6)*T+k,(g.y+0.25)*T,2,0.5*T);
+  }
+  // ---- Chittagong Boat Club (block 3,5) ----
+  if(near(41.5,61,8)){roofText('BOAT CLUB',41.5*T,61.2*T,14,'#1b5e20');ctx.fillStyle='#5dade2';rr(42.6*T,62.6*T,1.6*T,0.9*T,8);ctx.fill();}
+  // ---- BAF Shaheen College (block 1,5) ----
+  if(near(21.5,60,8)){roofText('BAF SHAHEEN',21.5*T,59.9*T,12,'#5d4037');roofText('COLLEGE',21.5*T,60.5*T,11,'#5d4037');}
+  // ---- Butterfly Park: fluttering butterflies ----
+  if(near(29,84,8))for(let k=0;k<6;k++){const bx=(27+k*1.0+Math.sin(frame*0.03+k)*0.4)*T,by=(83.6+Math.cos(frame*0.04+k*2)*0.6+(k%2)*1)*T,f=Math.abs(Math.sin(frame*0.3+k))*5+2;
+    ctx.fillStyle=['#ff7aa8','#ffd84d','#9b59b6','#ff9f43'][k%4];ctx.beginPath();ctx.ellipse(bx-f/2,by,f,4,0,0,Math.PI*2);ctx.ellipse(bx+f/2,by,f,4,0,0,Math.PI*2);ctx.fill();}
+  // ---- Chittagong Medical College Hospital: block (4,0) ----
+  const hx=52*T,hy=12*T;
+  if(near(52,12,6)){
     ctx.fillStyle='#e53935';ctx.fillRect(hx-30,hy-10-40,60,20);ctx.fillRect(hx-10,hy-30-40,20,60);
     roofText('CMCH',hx,hy+20,30,'#c62828');roofText('Chittagong Medical College Hospital',hx,hy+50,13,'#555');
-    // helipad
     const px=hx+82,py=hy-82;ctx.fillStyle='#4a4a4a';circle(px,py,30);ctx.strokeStyle='#f5c518';ctx.lineWidth=3;ctx.beginPath();ctx.arc(px,py,24,0,Math.PI*2);ctx.stroke();roofText('H',px,py+11,30,'#fff');
     ctx.fillStyle='#8fd3a0';ctx.fillRect(hx-100,hy+70,200,26);roofText('🚑 EMERGENCY',hx,hy+89,14,'#c62828');
   }
-  // CRB: colonial railway building on a green hill, block (2,2)
+  // ---- CRB: colonial railway building on a green hill, block (2,2) ----
   const cx=32*T,cy=32*T;
-  if(inView({x:cx,y:cy})){
+  if(near(32,32,6)){
     ctx.fillStyle='rgba(255,255,255,.85)';ctx.fillRect(cx-2*T+4,cy-T+4,4*T-8,4);ctx.fillRect(cx-2*T+4,cy+T-8,4*T-8,4);
     for(let k=-1;k<=1;k++){ctx.fillStyle='#7d2a1a';ctx.beginPath();ctx.moveTo(cx+k*56-16,cy-8);ctx.lineTo(cx+k*56,cy-24);ctx.lineTo(cx+k*56+16,cy-8);ctx.closePath();ctx.fill();}
     roofText('CRB',cx,cy+22,26,'#fff3e0');
     ctx.strokeStyle='rgba(255,255,255,.5)';ctx.lineWidth=6;ctx.setLineDash([4,6]);ctx.beginPath();ctx.moveTo(28.5*T,35*T);ctx.quadraticCurveTo(30*T,33.5*T,31*T,33*T);ctx.stroke();ctx.setLineDash([]);
   }
-  // Reazuddin Bazar banner, block (4,3)
-  const mx=52*T,my=42*T;
-  if(inView({x:mx,y:my})){ctx.fillStyle='#b71c1c';rr(mx-95,my-14,190,28,6);ctx.fill();ctx.strokeStyle='#ffd54f';ctx.lineWidth=2;ctx.stroke();roofText('REAZUDDIN BAZAR',mx,my+6,15,'#ffd54f');}
-  // Shah Amanat Airport terminal + tower
-  const ax=68*T,ay=59*T;
-  if(inView({x:ax,y:ay})||inView({x:60*T,y:ay})){
-    ctx.fillStyle='rgba(120,170,210,.6)';for(let k=62*T+10;k<74*T-10;k+=28)ctx.fillRect(k,ay+T-14,18,8);
-    roofText('SHAH AMANAT AIRPORT',ax,ay+4,20,'#1b3d6e');
-    ctx.fillStyle='#9fd3e6';circle(60.5*T,59.5*T,16);ctx.fillStyle='#3b4a5a';circle(60.5*T,59.5*T,8);
-    ctx.fillStyle=(frame>>4)%2?'#ff3b3b':'#661010';circle(60.5*T,59.5*T,3);
-  }
-  // road names painted on the roads
+  // ---- Reazuddin Bazar banner, block (4,2) ----
+  const mx=52*T,my=32*T;
+  if(near(52,32,6)){ctx.fillStyle='#b71c1c';rr(mx-95,my-14,190,28,6);ctx.fill();ctx.strokeStyle='#ffd54f';ctx.lineWidth=2;ctx.stroke();roofText('REAZUDDIN BAZAR',mx,my+6,15,'#ffd54f');}
+  // ---- Agrabad commercial towers ----
+  if(near(25,42,10)){roofText('AGRABAD',21.5*T,41.6*T,14,'#e8f1fa');roofText('C/A',31.5*T,41.6*T,14,'#e8f1fa');}
+  // ---- road names painted on the roads ----
   ctx.font='bold 15px Segoe UI, sans-serif';ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,.33)';
   for(const k in ROAD_NAMES.v){const lx=+k;if(lx<x0-1||lx>x1+1)continue;
-    for(let y=y0;y<=y1;y++)if(y%10===1&&tileAt(lx,y)===ROAD){ctx.save();ctx.translate((lx+1)*T,(y+0.5)*T);ctx.rotate(-Math.PI/2);ctx.fillText(ROAD_NAMES.v[k],0,5);ctx.restore();}}
+    for(let y=y0;y<=y1;y++)if(y%10===1&&tileAt(lx,y)===ROAD){ctx.save();ctx.translate((lx+1)*T,(y+0.5)*T);ctx.rotate(-Math.PI/2);ctx.fillText(ROAD_NAMES.v[k][0],0,5);ctx.restore();}}
   for(const k in ROAD_NAMES.h){const ly=+k;if(ly<y0-1||ly>y1+1)continue;
-    for(let x=x0;x<=x1;x++)if(x%10===1&&tileAt(x,ly)===ROAD)ctx.fillText(ROAD_NAMES.h[k],(x+0.5)*T,(ly+1)*T+5);}
-  // green highway signs beside Link Road
-  for(const sy of[12,32,44,62]){const sx=78.5*T,syp=sy*T;if(!inView({x:sx,y:syp}))continue;
-    ctx.fillStyle='#555';ctx.fillRect(sx-3,syp+14,6,26);ctx.fillStyle='#0b6e3a';rr(sx-44,syp-22,88,40,5);ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
-    ctx.fillStyle='#fff';ctx.font='bold 13px Segoe UI, sans-serif';ctx.fillText('LINK ROAD',sx,syp-5);ctx.font='11px Segoe UI, sans-serif';ctx.fillText('↑ Dhaka Highway',sx,syp+11);}
+    for(let x=x0;x<=x1;x++)if(x%10===1&&tileAt(x,ly)===ROAD)ctx.fillText(ROAD_NAMES.h[k][0],(x+0.5)*T,(ly+1)*T+5);}
+  // ---- green highway signs beside Link Road (north edge) ----
+  for(const sx0 of[14.5,34.5,54.5]){const sx=sx0*T,syp=4.6*T;if(!inView({x:sx,y:syp}))continue;
+    ctx.fillStyle='#555';ctx.fillRect(sx-3,syp+14,6,26);ctx.fillStyle='#0b6e3a';rr(sx-48,syp-22,96,40,5);ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 13px Segoe UI, sans-serif';ctx.fillText('LINK ROAD',sx,syp-5);ctx.font='11px Segoe UI, sans-serif';ctx.fillText('← Dhaka Highway',sx,syp+11);}
   ctx.restore();
 }
 function planeShape(fill,detail){
@@ -789,7 +946,8 @@ function drawTrain(inView){
 }
 function drawVehicle(v){
   if(v.type==='plane'){drawPlane(v);return;}
-  ctx.save();ctx.translate(v.x,v.y);ctx.rotate(v.a);
+  ctx.save();if(v.type!=='boat'&&tileAtP(v.x,v.y)===TUNNEL)ctx.globalAlpha=0.5; // inside the tunnel, under the river
+  ctx.translate(v.x,v.y);ctx.rotate(v.a);
   const w=v.w,h=v.h,hw=w/2,hh=h/2;
   if(v.type!=='boat'){ctx.fillStyle='rgba(0,0,0,.3)';rr(-hw+3,-hh+4,w,h,Math.min(6,hh));ctx.fill();}
   const body=v.wreck?'#2b2b2b':v.color;
@@ -881,15 +1039,26 @@ function drawStar(x,y,r,fill){ctx.beginPath();for(let k=0;k<10;k++){const a=-Mat
 
 // minimap
 const mini=document.createElement('canvas');mini.width=MW*2;mini.height=MH*2;
-const MINI=['#4f8a3c','#e0e0e0','#8a857b','#5a5560','#2b6f9e','#e3cf98','#2f5f2a','#e0e0e0','#8a877d','#a5523a','#5f9a4a','#8b6b4a','#6f7280','#d35400','#bba98b'];
-function buildMini(){const m=mini.getContext('2d');for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){m.fillStyle=MINI[map[y*MW+x]];m.fillRect(x*2,y*2,2,2);}}
+const MINI=['#4f8a3c','#e0e0e0','#8a857b','#5a5560','#2b6f9e','#e3cf98','#2f5f2a','#e0e0e0','#8a877d','#a5523a','#5f9a4a','#8b6b4a','#8db57a','#d35400','#bba98b','#9cc25a','#8fa36f','#4a5f7a'];
+function buildMini(){const m=mini.getContext('2d');for(let y=0;y<MH;y++)for(let x=0;x<MW;x++){m.fillStyle=MINI[map[y*MW+x]];m.fillRect(x*2,y*2,2,2);}
+  m.lineCap='butt';
+  for(const d of DROADS){m.strokeStyle='#e0e0e0';m.lineWidth=4;m.beginPath();m.moveTo(d.a[0]*2,d.a[1]*2);m.lineTo(d.b[0]*2,d.b[1]*2);m.stroke();}
+  m.strokeStyle='#3a3b40';m.lineWidth=RWY.w*2;m.beginPath();m.moveTo(RWY.a[0]*2,RWY.a[1]*2);m.lineTo(RWY.b[0]*2,RWY.b[1]*2);m.stroke();
+}
 function locName(){
   const p=player.car||player;let best=null,bd=9*T;for(const l of LANDMARKS.concat([POLICE_STN])){const d=dist(p,l);if(d<bd){bd=d;best=l.n;}}
   if(best)return best;const tx=p.x/T,ty=p.y/T;
   const ix=Math.floor(tx),iy=Math.floor(ty);
-  if(tileAt(ix,iy)===ROAD){const vn=isRoadLine(ix,77)&&ROAD_NAMES.v[ix-(ix%10)+6],hn=isRoadLine(iy,67)&&ROAD_NAMES.h[iy-(iy%10)+6];const n=vn||hn;
-    if(n)return n.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());}
-  if(tx<6)return'Patenga Coast';if(ty>=49&&ty<=53)return'Karnaphuli River';if(ty>53)return tx<46?'Port Area':'South Bank';if(tx>=58&&ty<48)return'Hill Zone';return'City Centre';
+  const nice=s=>s.toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());
+  const here=tileAt(ix,iy);
+  if((here===ROAD||here===BRIDGE)&&!southBank(tx,ty)){const vn=isRoadLine(ix,RL_X)&&ROAD_NAMES.v[ix-(ix%10)+6],hn=isRoadLine(iy,RL_Y)&&ROAD_NAMES.h[iy-(iy%10)+6];const n=vn||hn;
+    if(n)return nice(n[0]);}
+  if(here===DROAD)return nice(DROADS[0].n);
+  if(here===TUNNEL)return'Karnaphuli Tunnel';
+  if(here===WATER)return tx<=2||ty>=88?'Bay of Bengal':'Karnaphuli River';
+  if(tx<6)return'Patenga Coast';if(southBank(tx,ty))return'Anwara (South Bank)';
+  if(tx>=AIR.x0&&tx<=AIR.x1+1&&ty>=AIR.y0&&ty<=AIR.y1+1)return'Shah Amanat Airport';
+  if(ty>66)return'Patenga';if(ty>46)return'Port Area';if(ty<16)return tx<36?"Foy's Lake Hills":'Bayezid Hills';return'City Centre';
 }
 function targetPoint(){
   if(mission)return{...LANDMARKS[mission.to],col:'#ffd23f'};
@@ -899,11 +1068,11 @@ function targetPoint(){
 }
 // big area names, drawn on the full map
 const AREA_LABELS=[
-  {n:'BAY OF BENGAL',x:1.5,y:30,rot:-Math.PI/2,c:'#bfe3ff'},
-  {n:'KARNAPHULI RIVER',x:16,y:51.6,c:'#bfe3ff'},{n:'KARNAPHULI RIVER',x:44,y:51.6,c:'#bfe3ff'},
-  {n:'PATENGA',x:4.2,y:58,rot:-Math.PI/2,c:'#7a5a1a'},
-  {n:'PORT AREA',x:26,y:66.6,c:'#ffd9a0'},{n:'HILL ZONE',x:67,y:24.5,c:'#c8f5c0'},
-  {n:'RAILWAY',x:6.5,y:2.2,c:'#ffd9a0'},
+  {n:'BAY OF BENGAL',x:1.5,y:44,rot:-Math.PI/2,c:'#bfe3ff'},{n:'BAY OF BENGAL',x:14,y:89,c:'#bfe3ff'},
+  {n:'KARNAPHULI RIVER',x:60,y:51,rot:-1.03,c:'#bfe3ff'},{n:'KARNAPHULI RIVER',x:72.5,y:28,rot:-1.04,c:'#bfe3ff'},
+  {n:'PATENGA',x:9.5,y:68,c:'#5b3d0d'},{n:'PORT AREA',x:36,y:53,c:'#ffd9a0'},
+  {n:'BAYEZID HILLS',x:66,y:10.5,c:'#c8f5c0'},{n:'ANWARA',x:66,y:78,c:'#2d4a12'},
+  {n:'RAILWAY',x:30,y:21.5,c:'#ffd9a0'},
 ];
 // map label: dark pill with text (keeps names readable on any background)
 function mapLabel(txt,a,b,size,col,bg=true){
@@ -948,8 +1117,9 @@ function drawMapView(x,y,w,h,full){
     for(const L of AREA_LABELS){const [a,b]=PT(L.x,L.y);ctx.save();ctx.translate(a,b);if(L.rot)ctx.rotate(L.rot);ctx.globalAlpha=.85;mapLabel(L.n,0,0,13,L.c,false);ctx.restore();}
     // road names
     ctx.save();ctx.globalAlpha=.9;
-    for(const k in ROAD_NAMES.v){const [a,b]=PT(+k+1,22);ctx.save();ctx.translate(a,b);ctx.rotate(-Math.PI/2);mapLabel(ROAD_NAMES.v[k],0,4,11,'#ffe066');ctx.restore();}
-    for(const k in ROAD_NAMES.h){const [a,b]=PT(k==56?37:k==46?40:31,+k+1);mapLabel(ROAD_NAMES.h[k],a,b+4,11,'#ffe066');}
+    for(const k in ROAD_NAMES.v){const [a,b]=PT(+k+1,ROAD_NAMES.v[k][1]);ctx.save();ctx.translate(a,b);ctx.rotate(-Math.PI/2);mapLabel(ROAD_NAMES.v[k][0],0,4,11,'#ffe066');ctx.restore();}
+    for(const k in ROAD_NAMES.h){const [a,b]=PT(ROAD_NAMES.h[k][1],+k+1);mapLabel(ROAD_NAMES.h[k][0],a,b+4,11,'#ffe066');}
+    for(const d of DROADS){const [a,b]=PT((d.a[0]+d.b[0])/2,(d.a[1]+d.b[1])/2);ctx.save();ctx.translate(a,b);ctx.rotate(Math.atan2(d.a[1]-d.b[1],d.a[0]-d.b[0])+Math.PI);mapLabel(d.n,0,4,11,'#ffe066');ctx.restore();}
     ctx.restore();
     for(const s of SPECIALS)if(s.type==='boat'||s.type==='plane'||s.type==='ambulance'){const [a,b]=P(s);ctx.font='14px Segoe UI, sans-serif';ctx.textAlign='center';ctx.fillText(s.type==='boat'?'🚤':s.type==='plane'?'✈️':'🚑',a,b+5);}
   }
@@ -959,7 +1129,6 @@ function drawMapView(x,y,w,h,full){
     ctx.beginPath();ctx.moveTo(a,b);ctx.lineTo(a-6*s,b-12*s);ctx.arc(a,b-14*s,6.5*s,Math.PI*0.85,Math.PI*0.15);ctx.closePath();ctx.fill();ctx.stroke();ctx.fillStyle='#fff';circle(a,b-14*s,2.5*s);}
   for(const l of LANDMARKS.concat([POLICE_STN])){const [a,b]=P(l);if(a<x-40||a>x+w+40||b<y-10||b>y+h+20)continue;
     ctx.fillStyle='#fff';circle(a,b,full?2.5:2);mapLabel(l.n,a,b-5,fs,l===POLICE_STN?'#9bc4ff':'#fff');}
-  for(const s of STATIONS){if(s.n==='Sholoshahar')continue;const [a,b]=P({x:s.x,y:5*T});mapLabel('🚉 '+s.n,a,b+(full?14:12),fs,'#9be7ff');}
   for(const j of jobs){const [a,b]=P(LANDMARKS[j.from]);ctx.fillStyle='#4dff88';circle(a,b,r);}
   if(mission){const [a,b]=P(LANDMARKS[mission.to]);ctx.fillStyle='#ffd23f';circle(a,b,r+1+Math.sin(frame*.2));}
   for(const v of vehicles)if(v.ai==='police'){const [a,b]=P(v);ctx.fillStyle=(frame>>3)%2?'#ff3b3b':'#3b7bff';circle(a,b,r*0.8);}
@@ -1052,11 +1221,10 @@ function render(){
   if(mission){const b=LANDMARKS[mission.to];if(inView(b))drawMarker(b.x,b.y,'#ffd23f','DROP-OFF',false);}
   if(mapView.wp&&inView(mapView.wp))drawMarker(mapView.wp.x,mapView.wp.y,'#ff4fd8','📍 '+mapView.wp.n,false);
   // stations
-  for(const s of STATIONS){if(!inView({x:s.x,y:5*T})&&!inView({x:s.x-4*T,y:5*T})&&!inView({x:s.x+4*T,y:5*T}))continue;
-    ctx.fillStyle='rgba(150,55,40,.9)';ctx.fillRect(s.x-4*T,4*T+2,9*T-4,16);ctx.fillStyle='rgba(0,0,0,.25)';ctx.fillRect(s.x-4*T,4*T+18,9*T-4,4);
-    ctx.font='bold 14px Segoe UI, sans-serif';const lbl='🚉 '+s.n;const tw=ctx.measureText(lbl).width+16;
-    ctx.fillStyle='#1b3d6e';rr(s.x-tw/2,5*T+6,tw,22,4);ctx.fill();ctx.strokeStyle='#fff';ctx.lineWidth=1.5;ctx.stroke();ctx.fillStyle='#fff';ctx.fillText(lbl,s.x,5*T+22);
-    ctx.font='11px Segoe UI, sans-serif';ctx.fillStyle='#fff';ctx.fillText('Press E when the train stops',s.x,5*T+42);}
+  const PY=(RAIL_ROW+1)*T; // platform row, just south of the track
+  for(const s of STATIONS){if(!inView({x:s.x,y:PY})&&!inView({x:s.x-4*T,y:PY})&&!inView({x:s.x+4*T,y:PY}))continue;
+    ctx.fillStyle='rgba(150,55,40,.9)';ctx.fillRect(s.x-4.5*T,PY+2,9*T,16);ctx.fillStyle='rgba(0,0,0,.25)';ctx.fillRect(s.x-4.5*T,PY+18,9*T,4);
+    ctx.font='bold 11px Segoe UI, sans-serif';ctx.fillStyle='#fff';ctx.fillText('🚉 Press E when the train stops',s.x,PY+14);}
   for(const p of peds)if(inView(p))drawPerson(p,p.shirt,false);
   for(const v of vehicles)if(inView(v)&&!(v.alt>0))drawVehicle(v);
   drawTrain(inView);
@@ -1125,9 +1293,9 @@ function startGame(){
 document.getElementById('play').onclick=startGame;
 
 function initWorld(){
-  genMap();buildMini();
-  const s=LANDMARKS[3];player.x=s.x;player.y=s.y;player.a=Math.PI/2;
-  vehicles.push(makeVehicle('cng',27.6*T,38.6*T,Math.PI/2));
+  genMap();buildRoadGraph();placeOnShore();buildMini();
+  const s=AGRABAD;player.x=s.x;player.y=s.y;player.a=Math.PI/2;
+  vehicles.push(makeVehicle('cng',17.6*T,38.6*T,Math.PI/2));
   ensureSpecials(true);
   for(let k=0;k<40;k++)spawnTraffic(false);
   for(let k=0;k<75;k++)peds.push(spawnPed(false));
